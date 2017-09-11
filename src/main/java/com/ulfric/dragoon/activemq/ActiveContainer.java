@@ -66,10 +66,24 @@ public class ActiveContainer extends Container { // TODO better error handling -
 		});
 
 		factory.bind(Session.class).toLazy(ignore ->
-			Try.toGet(() -> factory.request(Connection.class).createSession(false, Session.AUTO_ACKNOWLEDGE)));
+
+		Try.toGet(() -> factory.request(Connection.class).createSession(false, Session.AUTO_ACKNOWLEDGE)));
 
 		factory.bind(Topic.class).toFunction(parameters -> {
-			String name = parameters.getQualifier().getName();
+			Object[] arguments = parameters.getArguments();
+
+			String name;
+			if (arguments.length == 0) {
+				name = parameters.getQualifier().getName();
+			} else {
+				Object argument = arguments[0];
+
+				if (argument instanceof String) {
+					name = (String) argument;
+ 				} else {
+ 					throw new IllegalArgumentException("Expected String, was " + argument);
+ 				}
+			}
 
 			return Try.toGet(() -> factory.request(Session.class).createTopic(name));
 		});
