@@ -11,7 +11,7 @@ import com.ulfric.dragoon.activemq.MessageHelper;
 import com.ulfric.dragoon.exception.Try;
 import com.ulfric.dragoon.extension.inject.Inject;
 
-public class EventConsumer<T extends Event> {
+public class EventSubscriber<T extends Event> {
 
 	private final MessageConsumer consumer;
 	private final Type type;
@@ -19,7 +19,7 @@ public class EventConsumer<T extends Event> {
 	@Inject
 	private MessageFactory factory;
 
-	public EventConsumer(MessageConsumer consumer, Type type) {
+	public EventSubscriber(MessageConsumer consumer, Type type) {
 		Objects.requireNonNull(consumer, "consumer");
 		Objects.requireNonNull(type, "type");
 

@@ -1,8 +1,6 @@
 package com.ulfric.dragoon.activemq;
 
 import java.lang.annotation.Annotation;
-import java.lang.reflect.AnnotatedElement;
-import java.lang.reflect.Field;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.util.logging.Level;
@@ -19,19 +17,21 @@ import javax.jms.Topic;
 import org.apache.activemq.ActiveMQConnectionFactory;
 
 import com.ulfric.dragoon.ObjectFactory;
+import com.ulfric.dragoon.Parameters;
 import com.ulfric.dragoon.activemq.configuration.ActiveConfiguration;
-import com.ulfric.dragoon.activemq.event.EventConsumer;
-import com.ulfric.dragoon.activemq.event.EventProducer;
+import com.ulfric.dragoon.activemq.event.EventPublisher;
+import com.ulfric.dragoon.activemq.event.EventSubscriber;
 import com.ulfric.dragoon.activemq.exception.AggregateException;
 import com.ulfric.dragoon.application.Container;
 import com.ulfric.dragoon.cfg4j.Settings;
 import com.ulfric.dragoon.exception.Try;
 import com.ulfric.dragoon.extension.inject.Inject;
-import com.ulfric.dragoon.naming.NameHelper;
+import com.ulfric.dragoon.qualifier.GenericQualifier;
+import com.ulfric.dragoon.qualifier.Qualifier;
 import com.ulfric.dragoon.stereotype.Stereotypes;
 import com.ulfric.dragoon.vault.Secret;
 
-public class ActiveContainer extends Container { // TODO better error handling
+public class ActiveContainer extends Container { // TODO better error handling - retries
 
 	@Secret("activemq/username") // TODO configurable to not use vault
 	private String username;
@@ -65,31 +65,31 @@ public class ActiveContainer extends Container { // TODO better error handling
 			return connection;
 		});
 
-		factory.bind(Session.class).toLazy(ignore -> // TODO should we create a new session?
+		factory.bind(Session.class).toLazy(ignore ->
 			Try.toGet(() -> factory.request(Connection.class).createSession(false, Session.AUTO_ACKNOWLEDGE)));
 
 		factory.bind(Topic.class).toFunction(parameters -> {
-			String name = nameFromFieldOrPassed(parameters);
+			String name = parameters.getQualifier().getName();
 
 			return Try.toGet(() -> factory.request(Session.class).createTopic(name));
 		});
 
 		factory.bind(Queue.class).toFunction(parameters -> {
-			String name = nameFromFieldOrPassed(parameters);
+			String name = parameters.getQualifier().getName();
 
 			return Try.toGet(() -> factory.request(Session.class).createQueue(name));
 		});
 
-		factory.bind(MessageConsumer.class).toFunction(parameters -> { // TODO support both Topic AND Queue on the same consumer
+		factory.bind(MessageConsumer.class).toFunction(parameters -> {
 			Destination destination = destination(parameters);
 			return Try.toGet(() -> factory.request(Session.class).createConsumer(destination));
 		});
 
-		factory.bind(MessageProducer.class).toFunction(parameters -> { // TODO support both Topic AND Queue on the same consumer
+		factory.bind(MessageProducer.class).toFunction(parameters -> {
 			Destination destination = destination(parameters);
 			MessageProducer producer = Try.toGet(() -> factory.request(Session.class).createProducer(destination));
 
-			Delivery delivery = annotationFromParameters(parameters, Delivery.class);
+			Delivery delivery = stereotype(parameters, Delivery.class);
 			if (delivery != null) {
 				Try.toRun(() -> {
 					producer.setDeliveryMode(delivery.persistence().intValue());
@@ -101,22 +101,30 @@ public class ActiveContainer extends Container { // TODO better error handling
 			return producer;
 		});
 
-		factory.bind(EventProducer.class).toFunction(parameters -> {
+		factory.bind(EventPublisher.class).toFunction(parameters -> {
 			MessageProducer backing = factory.request(MessageProducer.class, parameters);
-			return new EventProducer<>(backing);
+			return new EventPublisher<>(backing);
 		});
 
-		factory.bind(EventConsumer.class).toFunction(parameters -> {
+		factory.bind(EventSubscriber.class).toFunction(parameters -> {
 			MessageConsumer backing = factory.request(MessageConsumer.class, parameters);
-			Field field = (Field) parameters[1];
-			Type type = getParameterType(field.getGenericType());
-			return new EventConsumer<>(backing, type);
+			Type genericType = genericType(parameters);
+			Type type = parameterType(genericType);
+			return new EventSubscriber<>(backing, type);
 		});
 
 		connections = new DragoonConnectionFactory(username, password, config.url());
 	}
 
-	private Type getParameterType(Type type) {
+	private Type genericType(Parameters parameters) {
+		Qualifier qualifier = parameters.getQualifier();
+		if (qualifier instanceof GenericQualifier) {
+			return ((GenericQualifier) qualifier).getGenericType();
+		}
+		return qualifier.getType();
+	}
+
+	private Type parameterType(Type type) {
 		if (type instanceof ParameterizedType) {
 			ParameterizedType parameterizedType = (ParameterizedType) type;
 			Type[] parameters = parameterizedType.getActualTypeArguments();
@@ -129,74 +137,40 @@ public class ActiveContainer extends Container { // TODO better error handling
 		throw new IllegalArgumentException(type + " is not parameterized");
 	}
 
-	private Destination destination(Object[] parameters) {
-		if (parameters.length == 0) {
-			throw new IllegalArgumentException("Destination requires a topic or a queue");
-		}
-
-		Destination destination = topic(parameters);
-		if (destination == null) {
-			destination = queue(parameters);
-
-			if (destination == null) {
-				throw new IllegalArgumentException("Destination requires a topic or a queue");
-			}
-		}
-
-		return destination;
+	private Destination destination(Parameters parameters) {
+		return topic(parameters);
 	}
 
-	private Topic topic(Object[] parameters) { // TODO
-		com.ulfric.dragoon.activemq.Topic topic = annotationFromParameters(parameters, com.ulfric.dragoon.activemq.Topic.class);
+	private Topic topic(Parameters parameters) {
+		Object[] arguments = parameters.getArguments();
+
+		if (arguments.length == 1) {
+			Object argument = arguments[0];
+			return createTopicFromArgument(argument);
+		}
+
+		com.ulfric.dragoon.activemq.Topic topic = stereotype(parameters, com.ulfric.dragoon.activemq.Topic.class);
 		if (topic == null) {
-			return null;
+			throw new IllegalArgumentException("Topic request requires an @Topic on qualifier");
 		}
-		return factory.request(Topic.class, topic.value());
+
+		return createTopic(topic.value());
 	}
 
-	private Queue queue(Object[] parameters) {
-		com.ulfric.dragoon.activemq.Queue queue = annotationFromParameters(parameters, com.ulfric.dragoon.activemq.Queue.class);
-		if (queue == null) {
-			return null;
-		}
-		return factory.request(Queue.class, queue.value());
+	private <T extends Annotation> T stereotype(Parameters parameters, Class<T> type) {
+		return Stereotypes.getFirst(parameters.getQualifier(), type);
 	}
 
-	private <A extends Annotation> A annotationFromParameters(Object[] parameters, Class<A> annotation) {
-		if (parameters.length == 0) {
-			return null;
+	private Topic createTopicFromArgument(Object argument) {
+		if (!(argument instanceof String)) {
+			throw new IllegalArgumentException("Expected String, was " + argument);
 		}
 
-		Object object = parameters.length == 1 ? parameters[0] : parameters[1];
-		return Stereotypes.getFirst(annotationHolder(object), annotation);
+		return createTopic((String) argument);
 	}
 
-	private AnnotatedElement annotationHolder(Object object) {
-		if (object == null) {
-			return Object.class;
-		}
-
-		if (object instanceof AnnotatedElement) {
-			return (AnnotatedElement) object;
-		}
-
-		return object.getClass();
-	}
-
-	private String nameFromFieldOrPassed(Object[] parameters) { // TODO cleanup method, currently unreadable
-		if (parameters.length == 0) {
-			return null;
-		}
-
-		if (parameters.length == 1) {
-			return nameOrNull(parameters[0]);
-		}
-
-		return nameOrNull(parameters[1]);
-	}
-
-	private String nameOrNull(Object object) {
-		return object == null ? null : NameHelper.getName(object);
+	private Topic createTopic(String topic) {
+		return factory.request(Topic.class, topic);
 	}
 
 	private void unregister() { // TODO split up
@@ -208,6 +182,8 @@ public class ActiveContainer extends Container { // TODO better error handling
 		factory.bind(Queue.class).toNothing();
 		factory.bind(MessageConsumer.class).toNothing();
 		factory.bind(MessageProducer.class).toNothing();
+		factory.bind(EventPublisher.class).toNothing();
+		factory.bind(EventSubscriber.class).toNothing();
 
 		try {
 			connections.close();

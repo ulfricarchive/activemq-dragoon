@@ -8,14 +8,14 @@ import com.ulfric.dragoon.activemq.MessageFactory;
 import com.ulfric.dragoon.exception.Try;
 import com.ulfric.dragoon.extension.inject.Inject;
 
-public class EventProducer<T extends Event> {
+public class EventPublisher<T extends Event> {
 
 	private final MessageProducer producer;
 
 	@Inject
 	private MessageFactory factory;
 
-	public EventProducer(MessageProducer producer) {
+	public EventPublisher(MessageProducer producer) {
 		Objects.requireNonNull(producer, "producer");
 
 		this.producer = producer;
