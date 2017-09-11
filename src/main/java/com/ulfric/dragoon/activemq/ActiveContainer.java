@@ -10,7 +10,6 @@ import javax.jms.Connection;
 import javax.jms.Destination;
 import javax.jms.MessageConsumer;
 import javax.jms.MessageProducer;
-import javax.jms.Queue;
 import javax.jms.Session;
 import javax.jms.Topic;
 
@@ -88,15 +87,11 @@ public class ActiveContainer extends Container { // TODO better error handling -
 			return Try.toGet(() -> factory.request(Session.class).createTopic(name));
 		});
 
-		factory.bind(Queue.class).toFunction(parameters -> {
-			String name = parameters.getQualifier().getName();
-
-			return Try.toGet(() -> factory.request(Session.class).createQueue(name));
-		});
-
 		factory.bind(MessageConsumer.class).toFunction(parameters -> {
 			Destination destination = destination(parameters);
-			return Try.toGet(() -> factory.request(Session.class).createConsumer(destination));
+			String selector = selector(parameters);
+			boolean noLocal = noLocal(parameters);
+			return Try.toGet(() -> factory.request(Session.class).createConsumer(destination, selector, noLocal));
 		});
 
 		factory.bind(MessageProducer.class).toFunction(parameters -> {
@@ -171,6 +166,20 @@ public class ActiveContainer extends Container { // TODO better error handling -
 		return createTopic(topic.value());
 	}
 
+	private String selector(Parameters parameters) {
+		Selector selector = stereotype(parameters, Selector.class);
+
+		if (selector == null) {
+			return null;
+		}
+
+		return selector.value();
+	}
+
+	private boolean noLocal(Parameters parameters) {
+		return stereotype(parameters, NoLocal.class) != null;
+	}
+
 	private <T extends Annotation> T stereotype(Parameters parameters, Class<T> type) {
 		return Stereotypes.getFirst(parameters.getQualifier(), type);
 	}
@@ -193,7 +202,6 @@ public class ActiveContainer extends Container { // TODO better error handling -
 		factory.bind(Connection.class).toNothing();
 		factory.bind(Session.class).toNothing();
 		factory.bind(Topic.class).toNothing();
-		factory.bind(Queue.class).toNothing();
 		factory.bind(MessageConsumer.class).toNothing();
 		factory.bind(MessageProducer.class).toNothing();
 		factory.bind(EventPublisher.class).toNothing();
