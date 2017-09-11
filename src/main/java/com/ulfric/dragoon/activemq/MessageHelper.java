@@ -1,5 +1,6 @@
 package com.ulfric.dragoon.activemq;
 
+import java.lang.reflect.Type;
 import java.util.Enumeration;
 
 import javax.jms.BytesMessage;
@@ -17,7 +18,7 @@ public class MessageHelper {
 
 	private static final Gson GSON = new Gson(); // TODO shared GSON somewhere
 
-	public static <T> T read(Message message, Class<T> asType) {
+	public static <T> T read(Message message, Type asType) {
 		JsonElement json = toJson(message);
 
 		if (json == null) {

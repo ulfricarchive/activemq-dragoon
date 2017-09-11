@@ -2,6 +2,9 @@ package com.ulfric.dragoon.activemq;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.AnnotatedElement;
+import java.lang.reflect.Field;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -17,6 +20,8 @@ import org.apache.activemq.ActiveMQConnectionFactory;
 
 import com.ulfric.dragoon.ObjectFactory;
 import com.ulfric.dragoon.activemq.configuration.ActiveConfiguration;
+import com.ulfric.dragoon.activemq.event.EventConsumer;
+import com.ulfric.dragoon.activemq.event.EventProducer;
 import com.ulfric.dragoon.activemq.exception.AggregateException;
 import com.ulfric.dragoon.application.Container;
 import com.ulfric.dragoon.cfg4j.Settings;
@@ -80,7 +85,6 @@ public class ActiveContainer extends Container { // TODO better error handling
 			return Try.toGet(() -> factory.request(Session.class).createConsumer(destination));
 		});
 
-		// TODO support delivery mode
 		factory.bind(MessageProducer.class).toFunction(parameters -> { // TODO support both Topic AND Queue on the same consumer
 			Destination destination = destination(parameters);
 			MessageProducer producer = Try.toGet(() -> factory.request(Session.class).createProducer(destination));
@@ -97,7 +101,32 @@ public class ActiveContainer extends Container { // TODO better error handling
 			return producer;
 		});
 
+		factory.bind(EventProducer.class).toFunction(parameters -> {
+			MessageProducer backing = factory.request(MessageProducer.class, parameters);
+			return new EventProducer<>(backing);
+		});
+
+		factory.bind(EventConsumer.class).toFunction(parameters -> {
+			MessageConsumer backing = factory.request(MessageConsumer.class, parameters);
+			Field field = (Field) parameters[1];
+			Type type = getParameterType(field.getGenericType());
+			return new EventConsumer<>(backing, type);
+		});
+
 		connections = new DragoonConnectionFactory(username, password, config.url());
+	}
+
+	private Type getParameterType(Type type) {
+		if (type instanceof ParameterizedType) {
+			ParameterizedType parameterizedType = (ParameterizedType) type;
+			Type[] parameters = parameterizedType.getActualTypeArguments();
+			if (parameters.length == 0) {
+				throw new IllegalArgumentException(type + " has no type parameters");
+			}
+			return parameters[0];
+		}
+
+		throw new IllegalArgumentException(type + " is not parameterized");
 	}
 
 	private Destination destination(Object[] parameters) {
