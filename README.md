@@ -93,36 +93,39 @@ public class EventsExample {
 			container.install(VaultContainer.class);
 			container.install(ActiveContainer.class);
 
-			container.install(Consumer.class);
-			container.install(Producer.class);
+			container.install(Publisher.class);
+			container.install(Subscriber.class);
 		}
 	}
 
-	public static class Producer extends Container {
+	public static class Publisher extends Container {
 		@Inject
 		@Topic("bans")
-		private EventProducer<BanEvent> producer;
+		private EventPublisher<BanEvent> publisher;
 
-		public Producer() {
+		public Publisher() {
 			addBootHook(() -> {
+				Try.toRun(() -> Thread.sleep(100L));
 				BanEvent event = new BanEvent();
 				event.setBanned(UUID.randomUUID());
 				event.setExpiry(Instant.now().plus(Duration.ofDays(10)));
 
-				producer.send(event);
+				publisher.send(event);
 			});
 		}
 	}
 
-	public static class Consumer extends Container {
+	public static class Subscriber extends Container {
 		@Inject
 		@Topic("bans")
-		private EventConsumer<BanEvent> consumer;
+		private EventSubscriber<BanEvent> subscriber;
 
 		public Consumer() {
 			addBootHook(() -> {
-				BanEvent event = consumer.receive();
-				System.out.println("Banned " + event.getBanned() + " until " + event.getExpiry());
+				new Thread(() -> {
+					BanEvent event = subscriber.receive();
+					System.out.println("Banned " + event.getBanned() + " until " + event.getExpiry());
+				}).start();
 			});
 		}
 	}
