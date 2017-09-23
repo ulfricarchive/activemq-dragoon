@@ -22,7 +22,7 @@ import com.ulfric.dragoon.activemq.event.EventPublisher;
 import com.ulfric.dragoon.activemq.event.EventSubscriber;
 import com.ulfric.dragoon.activemq.exception.AggregateException;
 import com.ulfric.dragoon.application.Container;
-import com.ulfric.dragoon.cfg4j.Settings;
+import com.ulfric.dragoon.conf4j.Settings;
 import com.ulfric.dragoon.exception.Try;
 import com.ulfric.dragoon.extension.inject.Inject;
 import com.ulfric.dragoon.qualifier.GenericQualifier;

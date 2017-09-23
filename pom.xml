@@ -33,7 +33,7 @@
 
 		<dependency>
 			<groupId>com.ulfric.dragoon</groupId>
-			<artifactId>cfg4j-dragoon</artifactId>
+			<artifactId>conf4j-dragoon</artifactId>
 			<version>1.0.0</version>
 		</dependency>
 
