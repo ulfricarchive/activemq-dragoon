@@ -1,6 +1,8 @@
 package com.ulfric.dragoon.activemq.configuration;
 
-public interface ActiveConfiguration {
+import com.ulfric.conf4j.ConfigurationBean;
+
+public interface ActiveConfiguration extends ConfigurationBean {
 
 	String url();
 

@@ -52,48 +52,52 @@ public class ActiveContainer extends Container { // TODO better error handling -
 	public ActiveContainer() {
 		addBootHook(this::register);
 		addShutdownHook(this::unregister);
+		addShutdownHook(this::closeConnections);
 	}
 
-	private void register() { // TODO cleanup method
+	private void register() {
+		setupConnectionFactories();
+		bindConnectionFactories();
+		bindConnection();
+		bindSession();
+		bindTopic();
+		bindMessageProducer();
+		bindMessageConsumer();
+		bindEventPublisher();
+		bindEventSubscriber();
+	}
+
+	private void setupConnectionFactories() {
+		connections = new DragoonConnectionFactory(username, password, config.url());
+	}
+
+	private void bindConnectionFactories() {
 		factory.bind(DragoonConnectionFactory.class).toValue(connections);
 		factory.bind(ActiveMQConnectionFactory.class).toValue(connections);
+	}
 
+	private void bindConnection() {
 		factory.bind(Connection.class).toLazy(ignore -> {
 			Connection connection = Try.toGet(connections::createConnection);
 			Try.toRun(connection::start);
 			return connection;
 		});
+	}
 
+	private void bindSession() {
 		factory.bind(Session.class).toLazy(ignore ->
+			Try.toGet(() -> factory.request(Connection.class).createSession(false, Session.AUTO_ACKNOWLEDGE)));
+	}
 
-		Try.toGet(() -> factory.request(Connection.class).createSession(false, Session.AUTO_ACKNOWLEDGE)));
-
+	private void bindTopic() {
 		factory.bind(Topic.class).toFunction(parameters -> {
-			Object[] arguments = parameters.getArguments();
-
-			String name;
-			if (arguments.length == 0) {
-				name = parameters.getQualifier().getName();
-			} else {
-				Object argument = arguments[0];
-
-				if (argument instanceof String) {
-					name = (String) argument;
- 				} else {
- 					throw new IllegalArgumentException("Expected String, was " + argument);
- 				}
-			}
+			String name = Parameters.getPassedOrQualifiedName(parameters);
 
 			return Try.toGet(() -> factory.request(Session.class).createTopic(name));
 		});
+	}
 
-		factory.bind(MessageConsumer.class).toFunction(parameters -> {
-			Destination destination = destination(parameters);
-			String selector = selector(parameters);
-			boolean noLocal = noLocal(parameters);
-			return Try.toGet(() -> factory.request(Session.class).createConsumer(destination, selector, noLocal));
-		});
-
+	private void bindMessageProducer() {
 		factory.bind(MessageProducer.class).toFunction(parameters -> {
 			Destination destination = destination(parameters);
 			MessageProducer producer = Try.toGet(() -> factory.request(Session.class).createProducer(destination));
@@ -109,20 +113,31 @@ public class ActiveContainer extends Container { // TODO better error handling -
 
 			return producer;
 		});
+	}
 
+	private void bindMessageConsumer() {
+		factory.bind(MessageConsumer.class).toFunction(parameters -> {
+			Destination destination = destination(parameters);
+			String selector = selector(parameters);
+			boolean noLocal = noLocal(parameters);
+			return Try.toGet(() -> factory.request(Session.class).createConsumer(destination, selector, noLocal));
+		});
+	}
+
+	private void bindEventPublisher() {
 		factory.bind(EventPublisher.class).toFunction(parameters -> {
 			MessageProducer backing = factory.request(MessageProducer.class, parameters);
 			return new EventPublisher<>(backing);
 		});
+	}
 
+	private void bindEventSubscriber() {
 		factory.bind(EventSubscriber.class).toFunction(parameters -> {
 			MessageConsumer backing = factory.request(MessageConsumer.class, parameters);
 			Type genericType = genericType(parameters);
 			Type type = parameterType(genericType);
 			return new EventSubscriber<>(backing, type);
 		});
-
-		connections = new DragoonConnectionFactory(username, password, config.url());
 	}
 
 	private Type genericType(Parameters parameters) {
@@ -196,7 +211,7 @@ public class ActiveContainer extends Container { // TODO better error handling -
 		return factory.request(Topic.class, topic);
 	}
 
-	private void unregister() { // TODO split up
+	private void unregister() {
 		factory.bind(DragoonConnectionFactory.class).toNothing();
 		factory.bind(ActiveMQConnectionFactory.class).toNothing();
 		factory.bind(Connection.class).toNothing();
@@ -206,7 +221,9 @@ public class ActiveContainer extends Container { // TODO better error handling -
 		factory.bind(MessageProducer.class).toNothing();
 		factory.bind(EventPublisher.class).toNothing();
 		factory.bind(EventSubscriber.class).toNothing();
+	}
 
+	private void closeConnections() {
 		try {
 			connections.close();
 		} catch (AggregateException exception) {
