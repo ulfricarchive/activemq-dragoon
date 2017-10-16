@@ -30,7 +30,7 @@ import com.ulfric.dragoon.qualifier.Qualifier;
 import com.ulfric.dragoon.stereotype.Stereotypes;
 import com.ulfric.dragoon.vault.Secret;
 
-public class ActiveContainer extends Container { // TODO better error handling - retries
+public class ActiveContainer extends Container { // TODO better error handling - retries, AOP auditing
 
 	@Secret("activemq/username") // TODO configurable to not use vault
 	private String username;
@@ -41,7 +41,7 @@ public class ActiveContainer extends Container { // TODO better error handling -
 	@Settings("activemq")
 	private ActiveConfiguration config;
 
-	@Inject
+	@Inject(optional = true)
 	private Logger logger;
 
 	@Inject
@@ -78,6 +78,7 @@ public class ActiveContainer extends Container { // TODO better error handling -
 
 	private void bindConnection() {
 		factory.bind(Connection.class).toLazy(ignore -> {
+			info("Creating ActiveMQ connection");
 			Connection connection = Try.toGet(connections::createConnection);
 			Try.toRun(connection::start);
 			return connection;
@@ -227,9 +228,19 @@ public class ActiveContainer extends Container { // TODO better error handling -
 		try {
 			connections.close();
 		} catch (AggregateException exception) {
+			if (logger == null) {
+				return;
+			}
+
 			for (Throwable cause : exception.getCauses()) {
 				logger.log(Level.SEVERE, "Failed to close connection", cause);
 			}
+		}
+	}
+
+	private void info(String message) {
+		if (logger != null) {
+			logger.info(message);
 		}
 	}
 
