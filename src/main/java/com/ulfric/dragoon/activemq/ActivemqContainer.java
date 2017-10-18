@@ -17,7 +17,7 @@ import org.apache.activemq.ActiveMQConnectionFactory;
 
 import com.ulfric.dragoon.ObjectFactory;
 import com.ulfric.dragoon.Parameters;
-import com.ulfric.dragoon.activemq.configuration.ActiveConfiguration;
+import com.ulfric.dragoon.activemq.configuration.ActivemqConfiguration;
 import com.ulfric.dragoon.activemq.event.EventPublisher;
 import com.ulfric.dragoon.activemq.event.EventSubscriber;
 import com.ulfric.dragoon.activemq.exception.AggregateException;
@@ -30,16 +30,18 @@ import com.ulfric.dragoon.qualifier.Qualifier;
 import com.ulfric.dragoon.stereotype.Stereotypes;
 import com.ulfric.dragoon.vault.Secret;
 
-public class ActiveContainer extends Container { // TODO better error handling - retries, AOP auditing
+public class ActivemqContainer extends Container { // TODO better error handling - retries, AOP auditing
 
-	@Secret("activemq/username") // TODO configurable to not use vault
+	private static final String DEFAULT_ACTIVEMQ_CREDENTIALS = "admin";
+
+	@Secret(value = "activemq/username", fallbackSecret = DEFAULT_ACTIVEMQ_CREDENTIALS) // TODO configurable to not use vault
 	private String username;
 
-	@Secret("activemq/password") // TODO configurable to not use vault
+	@Secret(value = "activemq/password", fallbackSecret = DEFAULT_ACTIVEMQ_CREDENTIALS) // TODO configurable to not use vault
 	private String password;
 
 	@Settings("activemq")
-	private ActiveConfiguration config;
+	private ActivemqConfiguration config;
 
 	@Inject(optional = true)
 	private Logger logger;
@@ -49,7 +51,7 @@ public class ActiveContainer extends Container { // TODO better error handling -
 
 	private DragoonConnectionFactory connections;
 
-	public ActiveContainer() {
+	public ActivemqContainer() {
 		addBootHook(this::register);
 		addShutdownHook(this::unregister);
 		addShutdownHook(this::closeConnections);
@@ -78,8 +80,8 @@ public class ActiveContainer extends Container { // TODO better error handling -
 
 	private void bindConnection() {
 		factory.bind(Connection.class).toLazy(ignore -> {
-			info("Creating ActiveMQ connection");
-			Connection connection = Try.toGet(connections::createConnection);
+			info("Creating ActiveMQ connection to " + config.url());
+			Connection connection = Try.toGet(() -> connections.createConnection(username, password));
 			Try.toRun(connection::start);
 			return connection;
 		});
